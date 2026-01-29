@@ -14,6 +14,7 @@
 1. Auto read current model block labels
 2. Prompt user for current list, moving labels, and displacement range
 3. Output electromagnetic force table (CSV)
+![alt text](scripts/image.png)
 
 ## Script mapping
 - Entry point: `src/main.py` (CLI)
