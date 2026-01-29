@@ -50,10 +50,28 @@ Fix (in code):
 - Set `TotalCurrent = True`
 - Then **write back**: `label.Content = content`
 
+### 2.5 CLI missing arguments after refactor
+
+Symptoms:
+- `AttributeError: 'Namespace' object has no attribute 'model'`
+- `AttributeError: 'Namespace' object has no attribute 'integral_id'`
+
+Fix:
+- Added `--model` and `--integral-id` to `solve-integral` parser.
+- Default `integral-id` to **15** (Maxwell force).
+
+### 2.6 DMS window keeps popping and blocks the model view
+
+Root cause:
+- Accessing/saving `DataDoc` opens the `.dms` window in QuickField.
+
+Fix:
+- After `DataDoc.Save()`, close data windows via COM (`qf.Windows`).
+
 Example:
 
 ```
-.\run_py32.bat src/app.py move-blocks-once --labels "steel mover,magnet centre" --dx 3 --dy 0 --pbm "C:\Users\wangjingjun\Desktop\stage\Décision\PKM2507\test1\AM34.pbm" --model "C:\Users\wangjingjun\Desktop\stage\Décision\PKM2507\test1\Am34r1-L4.mod"
+.\run_py32.bat src/main.py move-blocks-once --labels "steel mover,magnet centre" --dx 3 --dy 0 --pbm "C:\Users\wangjingjun\Desktop\stage\Decision\PKM2507\test1\AM34.pbm" --model "C:\Users\wangjingjun\Desktop\stage\Decision\PKM2507\test1\Am34r1-L4.mod"
 ```
 
 ---
@@ -61,7 +79,7 @@ Example:
 
 Below are minimal **Python/COM** snippets showing the exact calls used, so you can edit logic later without relying on CLI wrappers.
 
-### 4.1 Connect QuickField + problem/model
+### 3.1 Connect QuickField + problem/model
 
 ```python
 import win32com.client
@@ -72,7 +90,7 @@ pbm.LoadModel()
 mdl = pbm.Model
 ```
 
-### 4.2 Move a block by label (single)
+### 3.2 Move a block by label (single)
 
 ```python
 theBlock = mdl.Shapes.Blocks.LabeledAs("", "", "steel mover").Item(1)
@@ -80,7 +98,7 @@ theVector = QF.PointXY(3.0, 0.0)
 theBlock.Move(0, theVector)        # 0 = qfShift
 ```
 
-### 4.3 Move multiple blocks as one rigid set (avoid double-moving shared edges)
+### 3.3 Move multiple blocks as one rigid set (avoid double-moving shared edges)
 
 ```python
 # Get bounds for each block, then union into one rectangle.
@@ -96,7 +114,7 @@ sel = mdl.Shapes.Blocks.InRectangle(QF.PointXY(left, bottom), QF.PointXY(right, 
 sel.Move(0, QF.PointXY(3.0, 0.0))
 ```
 
-### 4.4 Build mesh + solve + analyze
+### 3.4 Build mesh + solve + analyze
 
 ```python
 mdl.Shapes.BuildMesh(True, False)
@@ -106,7 +124,7 @@ if not pbm.Solved:
 pbm.AnalyzeResults()
 ```
 
-### 4.5 Mechanical force (Maxwell force integral)
+### 3.5 Mechanical force (Maxwell force integral)
 
 ```python
 res = pbm.Result
@@ -120,11 +138,15 @@ force = res.GetIntegral(15, contour).Value   # 15 = qfInt_MaxwellForce
 print(force.X, force.Y)
 ```
 
-### 4.6 Set coil current (bobine)
+### 3.6 Set coil current (bobine)
 
 ```python
 labels = pbm.Labels(3)         # block labels
 lbl = labels.Item(1)           # or search by Name
 if lbl.Name.strip().lower() == "bobine":
-    lbl.Content.TotalCurrent = 400
+    content = lbl.Content
+    content.Loading = 400
+    content.LoadingEx = 400
+    content.TotalCurrent = True
+    lbl.Content = content
 ```

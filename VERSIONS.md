@@ -6,8 +6,13 @@
 3. Modify geometry for continuous motion
 4. Build mesh and read post-solve data
 
+## V2 (engineered layout)
+1. Split functionality into 4 modules for maintainability
+2. Simplified duplicate logic (shared open/load helpers)
+
 ## Script mapping
-- Connect to QuickField: `src/app.py` (`dispatch_qf_app()` / `get_active_problem()`)
-- Modify label values: `src/app.py` (`cmd_set_current` / `cmd_label_dump`)
-- Modify geometry: `src/app.py` (`cmd_move_block` / `cmd_move_blocks` / `cmd_move_blocks_once` / `cmd_model`)
-- Mesh + read results: `src/app.py` (`cmd_solve_integral` / `cmd_solve_force` / `cmd_result_dump`)
+- Entry point: `src/main.py` (CLI)
+- Connect to QuickField: `src/QF_auto/connection.py`
+- Modify label values: `src/QF_auto/labels.py`
+- Modify geometry: `src/QF_auto/geometry.py`
+- Mesh + read results: `src/QF_auto/solve.py`
