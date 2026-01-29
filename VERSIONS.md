@@ -10,9 +10,15 @@
 1. Split functionality into 4 modules for maintainability
 2. Simplified duplicate logic (shared open/load helpers)
 
+## V3 (interactive batch workflow)
+1. Auto read current model block labels
+2. Prompt user for current list, moving labels, and displacement range
+3. Output electromagnetic force table (CSV)
+
 ## Script mapping
 - Entry point: `src/main.py` (CLI)
 - Connect to QuickField: `src/QF_auto/connection.py`
 - Modify label values: `src/QF_auto/labels.py`
 - Modify geometry: `src/QF_auto/geometry.py`
 - Mesh + read results: `src/QF_auto/solve.py`
+- Interactive sweep: `src/QF_auto/workflow.py`

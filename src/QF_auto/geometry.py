@@ -242,16 +242,28 @@ def move_blocks_in_rect(model: Any, qf: Any, rect: Sequence[float], dx: float, d
     try:
         blocks = model.Shapes.Blocks
         sel = _try_selection_in_rect(blocks, qf, x1, y1, x2, y2)
-        if sel is not None and try_move(sel, qf, dx, dy) is not None:
-            return 1, 1
+        if sel is not None:
+            try:
+                vec = qf.PointXY(dx, dy)
+                sel.Move(0, vec)
+                return 1, 1
+            except Exception:
+                if try_move(sel, qf, dx, dy) is not None:
+                    return 1, 1
     except Exception:
         pass
 
     # Try Selection.InRectangle then Move.
     try:
         sel = _try_selection_in_rect(model.Selection, qf, x1, y1, x2, y2)
-        if sel is not None and try_move(sel, qf, dx, dy) is not None:
-            return 1, 1
+        if sel is not None:
+            try:
+                vec = qf.PointXY(dx, dy)
+                sel.Move(0, vec)
+                return 1, 1
+            except Exception:
+                if try_move(sel, qf, dx, dy) is not None:
+                    return 1, 1
     except Exception:
         pass
 
