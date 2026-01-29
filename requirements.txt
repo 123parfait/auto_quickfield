@@ -1,0 +1,2 @@
+# Optional; needed only for COM automation
+pywin32>=306
