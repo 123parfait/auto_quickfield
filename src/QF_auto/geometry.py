@@ -855,6 +855,31 @@ def _block_bounds(block: Any) -> Optional[tuple[float, float, float, float]]:
         pass
     return None
 
+
+def list_block_labels(model: Any) -> list[str]:
+    labels: list[str] = []
+    try:
+        blocks = model.Shapes.Blocks
+    except Exception:
+        return labels
+    for blk in iter_collection(blocks):
+        try:
+            name = str(getattr(blk, "Label"))
+        except Exception:
+            name = ""
+        if name:
+            labels.append(name)
+    # de-dup while preserving order
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in labels:
+        key = name.strip()
+        if not key or key.lower() in seen:
+            continue
+        seen.add(key.lower())
+        out.append(key)
+    return out
+
 def cmd_block_bounds(args: argparse.Namespace) -> int:
     if win32com is None:
         print("pywin32 is not available. Install with: pip install pywin32")

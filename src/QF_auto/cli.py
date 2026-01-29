@@ -29,6 +29,7 @@ from .solve import (
     cmd_result_dump,
     cmd_solve_integral,
 )
+from .workflow import cmd_batch_force
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -192,6 +193,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_int.add_argument("--amps", default="", help="Total Ampere-Turns value")
     p_int.add_argument("--debug-current", action="store_true", help="Print current update info")
     p_int.set_defaults(func=cmd_solve_integral)
+
+    p_batch = sub.add_parser("batch-force", help="Interactive sweep: move blocks and compute force table")
+    p_batch.add_argument("--pbm", required=True, help="PBM path")
+    p_batch.add_argument("--model", default="", help="Optional path to .mod file")
+    p_batch.add_argument("--current-label", default="bobine", help="Current label name (default bobine)")
+    p_batch.add_argument("--integral-id", default="15", help="Integral ID (default 15)")
+    p_batch.add_argument("--mesh", action="store_true", help="Build mesh before solving")
+    p_batch.add_argument("--remesh", action="store_true", help="Remove mesh before rebuild")
+    p_batch.add_argument("--out", default="", help="Optional CSV output path")
+    p_batch.set_defaults(func=cmd_batch_force)
 
     return parser
 

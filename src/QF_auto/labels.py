@@ -540,6 +540,98 @@ def cmd_set_current(args: argparse.Namespace) -> int:
     print(f"Updated {changed} label(s) named '{label}'.")
     return 0
 
+
+def set_label_current(problem: Any, label: str, amps: float, qf: Optional[Any] = None) -> int:
+    labels = None
+    try:
+        labels = problem.DataDoc.Labels(3)
+    except Exception:
+        labels = None
+    if labels is None:
+        try:
+            labels = problem.Labels(3)
+        except Exception:
+            labels = None
+    if labels is None:
+        print("Failed to access block labels.")
+        return 0
+
+    targets = []
+    for lbl in iter_collection(labels):
+        try:
+            if str(lbl.Name).strip().lower() == label.lower():
+                targets.append(lbl)
+        except Exception:
+            continue
+
+    if not targets:
+        print(f"Block label not found: {label}")
+        return 0
+
+    changed = 0
+    for target in targets:
+        try:
+            content = target.Content
+            before_loading = _numeric_prop(content, "Loading")
+            before_loading_ex = _numeric_prop(content, "LoadingEx")
+            before_total_flag = _numeric_prop(content, "TotalCurrent")
+
+            try:
+                if callable(getattr(content, "Loading", None)):
+                    content.Loading(amps)
+                else:
+                    content.Loading = amps
+            except Exception:
+                pass
+            try:
+                if callable(getattr(content, "LoadingEx", None)):
+                    content.LoadingEx(amps)
+                else:
+                    content.LoadingEx = amps
+            except Exception:
+                pass
+            try:
+                if callable(getattr(content, "TotalCurrent", None)):
+                    content.TotalCurrent(True)
+                else:
+                    content.TotalCurrent = True
+            except Exception:
+                pass
+
+            try:
+                target.Content = content
+            except Exception:
+                pass
+
+            after = {}
+            for key in ("Loading", "LoadingEx", "TotalCurrent"):
+                try:
+                    after[key] = float(getattr(content, key))
+                except Exception:
+                    pass
+
+            if before_total_flag is not None:
+                print(f"Label '{label}': TotalCurrent {before_total_flag} -> {after.get('TotalCurrent', 'n/a')}")
+            if before_loading is not None or before_loading_ex is not None:
+                print(f"Label '{label}': Loading {before_loading} -> {after.get('Loading','n/a')}, LoadingEx {before_loading_ex} -> {after.get('LoadingEx','n/a')}")
+            print(f"Label '{label}': Loading={after.get('Loading','n/a')}, LoadingEx={after.get('LoadingEx','n/a')}")
+            changed += 1
+        except Exception as exc:
+            print(f"Failed to set current for one label '{label}': {exc}")
+
+    try:
+        problem.DataDoc.Save()
+    except Exception:
+        pass
+    try:
+        problem.Save()
+    except Exception:
+        pass
+    if qf is not None:
+        close_data_windows(qf)
+    print(f"Updated {changed} label(s) named '{label}'.")
+    return changed
+
 def cmd_label_dump(args: argparse.Namespace) -> int:
     if win32com is None or pythoncom is None:
         print("pywin32/pythoncom not available. Install with: pip install pywin32")
