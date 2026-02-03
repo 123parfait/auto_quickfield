@@ -632,6 +632,111 @@ def set_label_current(problem: Any, label: str, amps: float, qf: Optional[Any] =
     print(f"Updated {changed} label(s) named '{label}'.")
     return changed
 
+
+def set_label_field(
+    problem: Any,
+    labels: list[str],
+    field: str,
+    value: float,
+    qf: Optional[Any] = None,
+) -> int:
+    field_key = field.strip()
+    if not field_key:
+        print("Missing field name.")
+        return 0
+
+    label_set = {name.strip().lower() for name in labels if name.strip()}
+    if not label_set:
+        print("No label names provided.")
+        return 0
+
+    try:
+        label_coll = problem.DataDoc.Labels(3)
+    except Exception:
+        try:
+            label_coll = problem.Labels(3)
+        except Exception:
+            label_coll = None
+    if label_coll is None:
+        print("Failed to access block labels.")
+        return 0
+
+    targets = []
+    for lbl in iter_collection(label_coll):
+        try:
+            name = str(lbl.Name).strip().lower()
+        except Exception:
+            continue
+        if name in label_set:
+            targets.append(lbl)
+
+    if not targets:
+        print(f"No matching labels found: {', '.join(labels)}")
+        return 0
+
+    changed = 0
+    for target in targets:
+        try:
+            content = target.Content
+
+            # Special cases for common fields
+            if field_key.lower() in ("loading", "loadingex", "current", "amps"):
+                for name in ("Loading", "LoadingEx"):
+                    try:
+                        if callable(getattr(content, name, None)):
+                            getattr(content, name)(value)
+                        else:
+                            setattr(content, name, value)
+                    except Exception:
+                        pass
+                try:
+                    if callable(getattr(content, "TotalCurrent", None)):
+                        content.TotalCurrent(True)
+                    else:
+                        content.TotalCurrent = True
+                except Exception:
+                    pass
+            elif field_key.lower() in ("k", "mu", "mur", "kxx", "kyy"):
+                for name in ("Kxx", "Kyy"):
+                    try:
+                        if callable(getattr(content, name, None)):
+                            getattr(content, name)(value)
+                        else:
+                            setattr(content, name, value)
+                    except Exception:
+                        pass
+            else:
+                try:
+                    if callable(getattr(content, field_key, None)):
+                        getattr(content, field_key)(value)
+                    else:
+                        setattr(content, field_key, value)
+                except Exception as exc:
+                    print(f"Failed to set {field_key} on '{target.Name}': {exc}")
+                    continue
+
+            try:
+                target.Content = content
+            except Exception:
+                pass
+            changed += 1
+        except Exception as exc:
+            print(f"Failed to update '{target.Name}': {exc}")
+
+    try:
+        problem.DataDoc.Save()
+    except Exception:
+        pass
+    try:
+        problem.Save()
+    except Exception:
+        pass
+    if qf is not None:
+        close_data_windows(qf)
+
+    print(f"Updated {changed} label(s) for field '{field_key}' = {value}.")
+    return changed
+
 def cmd_label_dump(args: argparse.Namespace) -> int:
     if win32com is None or pythoncom is None:
         print("pywin32/pythoncom not available. Install with: pip install pywin32")

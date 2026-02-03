@@ -7,7 +7,6 @@ import sys
 from .connection import cmd_probe, cmd_sweep, cmd_table, cmd_gen_cases
 from .geometry import (
     cmd_move_block,
-    cmd_move_blocks,
     cmd_move_blocks_once,
     cmd_list_blocks,
     cmd_block_bounds,
@@ -67,14 +66,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_move.add_argument("--pbm", default="", help="Open PBM if no active problem")
     p_move.add_argument("--model", default="", help="Optional path to .mod file")
     p_move.set_defaults(func=cmd_move_block)
-
-    p_moves = sub.add_parser("move-blocks", help="Move multiple blocks by label list")
-    p_moves.add_argument("--labels", required=True, help="Comma-separated labels")
-    p_moves.add_argument("--dx", required=True, help="Delta X")
-    p_moves.add_argument("--dy", required=True, help="Delta Y")
-    p_moves.add_argument("--pbm", default="", help="Open PBM if no active problem")
-    p_moves.add_argument("--model", default="", help="Optional path to .mod file")
-    p_moves.set_defaults(func=cmd_move_blocks)
 
     p_move_once = sub.add_parser("move-blocks-once", help="Move blocks as a group (union bounds)")
     p_move_once.add_argument("--labels", required=True, help="Comma-separated labels")
@@ -195,12 +186,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_int.set_defaults(func=cmd_solve_integral)
 
     p_batch = sub.add_parser("batch-force", help="Interactive sweep: move blocks and compute force table")
-    p_batch.add_argument("--pbm", required=True, help="PBM path")
+    p_batch.add_argument("--pbm", default="", help="PBM path (optional if a problem is already open)")
     p_batch.add_argument("--model", default="", help="Optional path to .mod file")
     p_batch.add_argument("--current-label", default="bobine", help="Current label name (default bobine)")
     p_batch.add_argument("--integral-id", default="15", help="Integral ID (default 15)")
     p_batch.add_argument("--mesh", action="store_true", help="Build mesh before solving")
     p_batch.add_argument("--remesh", action="store_true", help="Remove mesh before rebuild")
+    p_batch.add_argument("--mesh-once", action="store_true", help="Build mesh once per case (faster, less accurate)")
+    p_batch.add_argument("--sleep", default="0", help="Sleep seconds between steps (e.g., 0.5)")
     p_batch.add_argument("--out", default="", help="Optional CSV output path")
     p_batch.set_defaults(func=cmd_batch_force)
 

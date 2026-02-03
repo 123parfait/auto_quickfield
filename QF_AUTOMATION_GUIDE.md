@@ -68,12 +68,6 @@ Root cause:
 Fix:
 - After `DataDoc.Save()`, close data windows via COM (`qf.Windows`).
 
-Example:
-
-```
-.\run_py32.bat src/main.py move-blocks-once --labels "steel mover,magnet centre" --dx 3 --dy 0 --pbm "C:\Users\wangjingjun\Desktop\stage\Decision\PKM2507\test1\AM34.pbm" --model "C:\Users\wangjingjun\Desktop\stage\Decision\PKM2507\test1\Am34r1-L4.mod"
-```
-
 ---
 ## 3) Function-level COM snippets (for future edits)
 

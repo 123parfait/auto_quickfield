@@ -238,18 +238,30 @@ def move_blocks_in_rect(model: Any, qf: Any, rect: Sequence[float], dx: float, d
         return 0, 0
     x1, y1, x2, y2 = rect_eps
 
+    def _selection_count(sel: Any) -> Optional[int]:
+        try:
+            return int(getattr(sel, "Count"))
+        except Exception:
+            return None
+
     # Try Blocks.InRectangle to get a shape range, then move it.
     try:
         blocks = model.Shapes.Blocks
         sel = _try_selection_in_rect(blocks, qf, x1, y1, x2, y2)
         if sel is not None:
-            try:
-                vec = qf.PointXY(dx, dy)
-                sel.Move(0, vec)
-                return 1, 1
-            except Exception:
-                if try_move(sel, qf, dx, dy) is not None:
-                    return 1, 1
+            count = _selection_count(sel)
+            if count == 0:
+                sel = None
+            else:
+                try:
+                    vec = qf.PointXY(dx, dy)
+                    sel.Move(0, vec)
+                    moved = count if count is not None else 1
+                    return moved, moved
+                except Exception:
+                    if try_move(sel, qf, dx, dy) is not None:
+                        moved = count if count is not None else 1
+                        return moved, moved
     except Exception:
         pass
 
@@ -257,13 +269,19 @@ def move_blocks_in_rect(model: Any, qf: Any, rect: Sequence[float], dx: float, d
     try:
         sel = _try_selection_in_rect(model.Selection, qf, x1, y1, x2, y2)
         if sel is not None:
-            try:
-                vec = qf.PointXY(dx, dy)
-                sel.Move(0, vec)
-                return 1, 1
-            except Exception:
-                if try_move(sel, qf, dx, dy) is not None:
-                    return 1, 1
+            count = _selection_count(sel)
+            if count == 0:
+                sel = None
+            else:
+                try:
+                    vec = qf.PointXY(dx, dy)
+                    sel.Move(0, vec)
+                    moved = count if count is not None else 1
+                    return moved, moved
+                except Exception:
+                    if try_move(sel, qf, dx, dy) is not None:
+                        moved = count if count is not None else 1
+                        return moved, moved
     except Exception:
         pass
 
@@ -551,58 +569,6 @@ def cmd_move_block(args: argparse.Namespace) -> int:
         print(f"Move failed for block '{label}'.")
         return 6
     print(f"Moved block '{label}' by dx={dx}, dy={dy} using {moved}.")
-    return 0
-
-def cmd_move_blocks(args: argparse.Namespace) -> int:
-    if win32com is None:
-        print("pywin32 is not available. Install with: pip install pywin32")
-        return 1
-
-    qf = dispatch_qf_app()
-    problem = open_problem(qf, args.pbm)
-    if problem is None:
-        return 2
-
-    model = ensure_model_loaded(problem, Path(args.model) if args.model else None)
-    if model is None:
-        print("Failed to load model.")
-        return 3
-
-    labels = [v.strip() for v in args.labels.split(",") if v.strip()]
-    if not labels:
-        print("Missing --labels.")
-        return 4
-
-    dx = float(args.dx)
-    dy = float(args.dy)
-    moved = 0
-    for label in labels:
-        blk = _find_block_by_label(model, label)
-        if blk is None:
-            print(f"Block not found for label: {label}")
-            continue
-        try:
-            vec = qf.PointXY(dx, dy)
-            try:
-                blk.Move(0, vec)
-                print(f"Moved block '{label}' by dx={dx}, dy={dy} using Move(0, PointXY).")
-                moved += 1
-                continue
-            except Exception:
-                pass
-        except Exception:
-            vec = None
-
-        how = try_move(blk, qf, dx, dy)
-        if how is None:
-            print(f"Move failed for block '{label}'.")
-            continue
-        print(f"Moved block '{label}' by dx={dx}, dy={dy} using {how}.")
-        moved += 1
-
-    if moved == 0:
-        print("No blocks moved.")
-        return 5
     return 0
 
 def _collect_vertices_for_labels(model: Any, labels: list[str]) -> list[Any]:

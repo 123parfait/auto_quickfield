@@ -27,16 +27,28 @@ def rebuild_model(qf: Any, problem: Any) -> None:
             pass
 
 def build_mesh(model: Any) -> bool:
-    try:
-        model.Shapes.BuildMesh()
-        return True
-    except Exception:
-        pass
-    try:
-        model.BuildMesh()
-        return True
-    except Exception:
+    def _try_build(target: Any) -> bool:
+        if target is None:
+            return False
+        for args in ((True, False), (True,), ()):
+            try:
+                target.BuildMesh(*args)
+                return True
+            except Exception:
+                continue
         return False
+
+    shapes = None
+    try:
+        shapes = model.Shapes
+    except Exception:
+        shapes = None
+
+    if _try_build(shapes):
+        return True
+    if _try_build(model):
+        return True
+    return False
 
 def remove_mesh(model: Any) -> bool:
     try:
@@ -50,15 +62,42 @@ def remove_mesh(model: Any) -> bool:
     except Exception:
         return False
 
-def solve_problem(problem: Any) -> bool:
-    try:
-        if hasattr(problem, "SolveProblem"):
-            problem.SolveProblem()
-        elif hasattr(problem, "Solve"):
-            problem.Solve()
-        else:
-            return False
-    except Exception:
+def solve_problem(problem: Any, model: Optional[Any] = None) -> bool:
+    def _try_solve() -> Optional[Exception]:
+        try:
+            if hasattr(problem, "SolveProblem"):
+                problem.SolveProblem()
+            elif hasattr(problem, "Solve"):
+                problem.Solve()
+            else:
+                return Exception("No SolveProblem/Solve method on problem.")
+            return None
+        except Exception as exc:
+            return exc
+
+    exc = _try_solve()
+    if exc is not None:
+        msg = str(exc)
+        msg_l = msg.lower()
+        if "has no mesh" in msg_l and "air" in msg_l:
+            if model is not None:
+                try:
+                    build_mesh(model)
+                except Exception:
+                    pass
+                exc_retry = _try_solve()
+                if exc_retry is None:
+                    return True
+                exc = exc_retry
+                msg = str(exc)
+                msg_l = msg.lower()
+                if "has no mesh" in msg_l and "air" in msg_l:
+                    print(f"SolveProblem warning (ignored): {exc}")
+                    return True
+            else:
+                print(f"SolveProblem warning (ignored): {exc}")
+                return True
+        print(f"SolveProblem failed: {exc}")
         return False
 
     # Wait for solver if busy.
@@ -347,7 +386,7 @@ def cmd_solve_force(args: argparse.Namespace) -> int:
             print("BuildMesh failed.")
             return 4
 
-    if not solve_problem(problem):
+    if not solve_problem(problem, model):
         print("SolveProblem failed.")
         return 5
 
@@ -506,7 +545,7 @@ def cmd_solve_integral(args: argparse.Namespace) -> int:
             print("BuildMesh failed.")
             return 4
 
-    if not solve_problem(problem):
+    if not solve_problem(problem, model):
         print("SolveProblem failed.")
         return 5
 
