@@ -1,8 +1,8 @@
 ﻿{
-  "pbm": "C:/Users/wangjingjun/Desktop/stage/Décision/PKM2507/test1/AM34.pbm",
-  "model": "C:/Users/wangjingjun/Desktop/stage/Décision/PKM2507/test1/Am34r1-l2.mod",
+  "pbm": "",
+  "model": "",
   "save_model_as": "",
-  "use_active_problem": false,
+  "use_active_problem": true,
   "rebuild_each_action": true,
   "rebuild_at_end": true,
   "actions": [

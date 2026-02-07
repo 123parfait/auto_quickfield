@@ -12,12 +12,12 @@ from .connection import (
     ensure_model_loaded,
     normalize_labels,
     close_data_windows,
+    iter_collection,
     _com_method_names,
     _numeric_prop,
     _string_prop,
 )
-from .geometry import _block_bounds
-from .labels import _label_point
+from .labels import _label_collection
 
 def rebuild_model(qf: Any, problem: Any) -> None:
     for obj in (problem, qf):
@@ -79,24 +79,21 @@ def solve_problem(problem: Any, model: Optional[Any] = None) -> bool:
     if exc is not None:
         msg = str(exc)
         msg_l = msg.lower()
-        if "has no mesh" in msg_l and "air" in msg_l:
-            if model is not None:
-                try:
-                    build_mesh(model)
-                except Exception:
-                    pass
-                exc_retry = _try_solve()
-                if exc_retry is None:
-                    return True
-                exc = exc_retry
-                msg = str(exc)
-                msg_l = msg.lower()
-                if "has no mesh" in msg_l and "air" in msg_l:
-                    print(f"SolveProblem warning (ignored): {exc}")
-                    return True
-            else:
-                print(f"SolveProblem warning (ignored): {exc}")
+        if model is not None and ("has no mesh" in msg_l or "no mesh" in msg_l):
+            # Retry once with a fresh mesh rebuild.
+            if not build_mesh(model):
+                remove_mesh(model)
+                if not build_mesh(model):
+                    print("BuildMesh failed during solve retry.")
+                    print(f"SolveProblem failed: {exc}")
+                    return False
+
+            exc_retry = _try_solve()
+            if exc_retry is None:
                 return True
+            print(f"SolveProblem failed after mesh rebuild: {exc_retry}")
+            return False
+
         print(f"SolveProblem failed: {exc}")
         return False
 
@@ -311,17 +308,19 @@ def cmd_set_circuit_current(args: argparse.Namespace) -> int:
     return 0
 
 def cmd_com_probe(args: argparse.Namespace) -> int:
-    pbm_path = Path(args.pbm)
-    if not pbm_path.exists():
-        print(f"PBM not found: {pbm_path}")
-        return 1
     if win32com is None:
         print("pywin32 is not available. Install with: pip install pywin32")
         return 1
 
-    app, problem = com_open_problem(pbm_path)
+    qf = dispatch_qf_app()
+    problem = open_problem(qf, args.pbm)
+    if problem is None:
+        return 2
     print("COM probe OK")
-    print(f"- Problem: {pbm_path.name}")
+    if args.pbm:
+        print(f"- Problem: {Path(args.pbm).name}")
+    else:
+        print("- Problem: <active>")
     print(f"- ActiveProblem: {problem}")
 
     # Try to access model after opening referenced model file (if provided).
@@ -363,15 +362,8 @@ def cmd_solve_force(args: argparse.Namespace) -> int:
         return 1
 
     qf = dispatch_qf_app()
-    pbm_path = Path(args.pbm) if args.pbm else None
-    if pbm_path is None or not pbm_path.exists():
-        print("PBM not found. Provide --pbm with a valid .pbm file.")
-        return 1
-
-    qf.Problems.Open(str(pbm_path))
-    problem = qf.ActiveProblem
+    problem = open_problem(qf, args.pbm)
     if problem is None:
-        print("Failed to open problem.")
         return 2
 
     model = ensure_model_loaded(problem, Path(args.model) if args.model else None)
@@ -423,15 +415,8 @@ def cmd_result_dump(args: argparse.Namespace) -> int:
         return 1
 
     qf = dispatch_qf_app()
-    pbm_path = Path(args.pbm) if args.pbm else None
-    if pbm_path is None or not pbm_path.exists():
-        print("PBM not found. Provide --pbm with a valid .pbm file.")
-        return 1
-
-    qf.Problems.Open(str(pbm_path))
-    problem = qf.ActiveProblem
+    problem = open_problem(qf, args.pbm)
     if problem is None:
-        print("Failed to open problem.")
         return 2
 
     if args.solve:
@@ -466,15 +451,8 @@ def cmd_solve_integral(args: argparse.Namespace) -> int:
         return 1
 
     qf = dispatch_qf_app()
-    pbm_path = Path(args.pbm) if args.pbm else None
-    if pbm_path is None or not pbm_path.exists():
-        print("PBM not found. Provide --pbm with a valid .pbm file.")
-        return 1
-
-    qf.Problems.Open(str(pbm_path))
-    problem = qf.ActiveProblem
+    problem = open_problem(qf, args.pbm)
     if problem is None:
-        print("Failed to open problem.")
         return 2
 
     model = ensure_model_loaded(problem, Path(args.model) if args.model else None)

@@ -3,9 +3,10 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+import threading
 import time
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from .connection import dispatch_qf_app, open_problem, ensure_model_loaded
 from .geometry import (
@@ -18,7 +19,7 @@ from .geometry import (
     move_vertex,
 )
 from .labels import set_label_field
-from .solve import build_mesh, remove_mesh, solve_problem
+from .solve import build_mesh, remove_mesh, solve_problem, rebuild_model
 
 
 def _prompt(text: str, default: str | None = None) -> str:
@@ -219,6 +220,325 @@ def _wait_idle(obj: Any, timeout_s: float = 120.0, interval_s: float = 0.2) -> N
         time.sleep(interval_s)
 
 
+def _clear_selection(model: Any) -> None:
+    if model is None:
+        return
+    selections = []
+    try:
+        selections.append(model.Selection)
+    except Exception:
+        pass
+    try:
+        shapes = model.Shapes
+        sel = getattr(shapes, "Selection", None)
+        if sel is not None:
+            selections.append(sel)
+    except Exception:
+        pass
+
+    for sel in selections:
+        for name in ("Clear", "ClearSelection", "ClearAll"):
+            try:
+                method = getattr(sel, name, None)
+                if callable(method):
+                    method()
+                    break
+            except Exception:
+                continue
+
+
+def _ensure_full_mesh(model: Any, qf: Any, problem: Any, force_remesh: bool) -> bool:
+    _clear_selection(model)
+    rebuild_model(qf, problem)
+
+    if force_remesh:
+        remove_mesh(model)
+        if not build_mesh(model):
+            return False
+        _wait_idle(model)
+        _wait_idle(problem)
+        return True
+
+    if build_mesh(model):
+        _wait_idle(model)
+        _wait_idle(problem)
+        return True
+
+    remove_mesh(model)
+    if not build_mesh(model):
+        return False
+    _wait_idle(model)
+    _wait_idle(problem)
+    return True
+
+
+def run_batch_force_plan(
+    pbm: str,
+    model_path: str,
+    move_labels: Sequence[str],
+    cases: Sequence[dict[str, float]],
+    field_name: str,
+    positions: Sequence[tuple[float, float]],
+    integrals: Sequence[tuple[str, int]],
+    mesh: bool,
+    remesh: bool,
+    mesh_once: bool,
+    sleep_s: float,
+    out_path: str,
+    log: Optional[Callable[[str], None]] = None,
+    cancel: Optional[threading.Event] = None,
+) -> int:
+    def emit(msg: str) -> None:
+        if log is not None:
+            log(msg)
+        else:
+            print(msg)
+
+    def is_cancelled() -> bool:
+        return cancel is not None and cancel.is_set()
+
+    if not move_labels:
+        emit("No moving labels provided.")
+        return 3
+    if not cases:
+        emit("No cases provided.")
+        return 4
+    if not positions:
+        emit("No positions provided.")
+        return 5
+    if not integrals:
+        emit("No output values selected.")
+        return 6
+
+    qf = dispatch_qf_app()
+    problem = open_problem(qf, pbm)
+    if problem is None:
+        return 1
+
+    model = ensure_model_loaded(problem, Path(model_path) if model_path else None)
+    if model is None:
+        emit("Failed to load model.")
+        return 2
+
+    def _integral_components(val: Any) -> dict[str, float]:
+        comps: dict[str, float] = {}
+        for axis in ("X", "Y", "Z"):
+            if hasattr(val, axis):
+                try:
+                    comps[axis] = float(getattr(val, axis))
+                except Exception:
+                    pass
+        if comps:
+            return comps
+        try:
+            return {"": float(val)}
+        except Exception:
+            return {"": float("nan")}
+
+    x0, y0 = positions[0]
+    bounds = []
+    for name in move_labels:
+        blk = _find_block_by_label(model, name)
+        if blk is None:
+            emit(f"Block not found: {name}")
+            return 6
+        b = _block_bounds(blk)
+        if b is None:
+            emit(f"Bounds unavailable for: {name}")
+            return 7
+        bounds.append(b)
+
+    base_rect = _union_bounds(bounds)
+    verts = _collect_vertices_for_labels(model, move_labels)
+    mesh_once_effective = bool(mesh_once)
+    if mesh and mesh_once:
+        emit("Note: --mesh-once is ignored because geometry moves each step.")
+        mesh_once_effective = False
+
+    def _move_by_xy(
+        dx: float,
+        dy: float,
+        rect_now: tuple[float, float, float, float],
+        cur_x: float,
+        cur_y: float,
+    ) -> tuple[bool, tuple[float, float, float, float], float, float]:
+        if abs(dx) <= 1e-9 and abs(dy) <= 1e-9:
+            return True, rect_now, cur_x, cur_y
+        moved = 0
+        moved, _ = move_blocks_in_rect(model, qf, rect_now, dx, dy, epsilon=1e-6)
+        if moved == 0 and verts:
+            for vtx in verts:
+                if move_vertex(vtx, qf, dx, dy):
+                    moved += 1
+            if moved > 0:
+                try:
+                    move_block_labels(problem, qf, move_labels, dx, dy)
+                except Exception:
+                    pass
+        if moved == 0:
+            return False, rect_now, cur_x, cur_y
+        rect_now = (rect_now[0] + dx, rect_now[1] + dy, rect_now[2] + dx, rect_now[3] + dy)
+        cur_x = cur_x + dx
+        cur_y = cur_y + dy
+        return True, rect_now, cur_x, cur_y
+
+    table: dict[tuple[float, float], dict[int, dict[str, float]]] = {}
+    seen_components: dict[str, list[str]] = {name: [] for name, _ in integrals}
+
+    step_sleep = max(0.0, float(sleep_s or 0))
+    cancelled = False
+
+    for idx, case in enumerate(cases, start=1):
+        if is_cancelled():
+            cancelled = True
+            break
+        for name, val in case.items():
+            set_label_field(problem, [name], field_name, val, qf=qf, log=log)
+
+        rect = base_rect
+        cur_x = 0.0
+        cur_y = 0.0
+        try:
+            ok, rect, cur_x, cur_y = _move_by_xy(x0 - cur_x, y0 - cur_y, rect, cur_x, cur_y)
+            if not ok:
+                emit("Move failed at start position.")
+                return 8
+
+            if mesh_once_effective and mesh:
+                if not _ensure_full_mesh(model, qf, problem, force_remesh=remesh):
+                    emit("BuildMesh failed.")
+                    return 9
+
+            for dx, dy in positions:
+                if is_cancelled():
+                    cancelled = True
+                    break
+                ok, rect, cur_x, cur_y = _move_by_xy(dx - cur_x, dy - cur_y, rect, cur_x, cur_y)
+                if not ok:
+                    emit(f"Move failed at position dx={dx}, dy={dy}.")
+                    return 8
+
+                if not mesh_once_effective and mesh:
+                    if not _ensure_full_mesh(model, qf, problem, force_remesh=remesh):
+                        emit("BuildMesh failed.")
+                        return 9
+
+                if not solve_problem(problem, model):
+                    emit("SolveProblem failed.")
+                    return 10
+
+                try:
+                    res = problem.Result
+                except Exception:
+                    res = None
+                if res is None:
+                    emit("Result is None after solve.")
+                    return 11
+
+                try:
+                    field = res.GetFieldWindow(1)
+                    contour = field.Contour
+                except Exception as exc:
+                    emit(f"Failed to access FieldWindow/Contour: {exc}")
+                    return 12
+
+                try:
+                    contour.Clear()
+                except Exception:
+                    pass
+                for name in move_labels:
+                    try:
+                        contour.AddBlock1(name)
+                    except Exception:
+                        pass
+
+                key = (float(dx), float(dy))
+                table.setdefault(key, {}).setdefault(idx, {})
+                outputs: list[str] = []
+                for integral_name, integral_id in integrals:
+                    try:
+                        val = res.GetIntegral(integral_id, contour)
+                        if hasattr(val, "Value"):
+                            val = val.Value
+                        comps = _integral_components(val)
+                    except Exception as exc:
+                        emit(f"Integral failed ({integral_name}) at dx={dx}, dy={dy}: {exc}")
+                        return 13
+
+                    for comp_name, comp_val in comps.items():
+                        if comp_name not in seen_components[integral_name]:
+                            seen_components[integral_name].append(comp_name)
+                        col_name = integral_name if comp_name == "" else f"{integral_name}.{comp_name}"
+                        table[key][idx][col_name] = comp_val
+                        outputs.append(f"{col_name}={comp_val}")
+
+                case_label = ",".join(f"{k}={v}" for k, v in case.items())
+                emit(f"{case_label} dx={dx} dy={dy}: " + ", ".join(outputs))
+                if step_sleep > 0:
+                    time.sleep(step_sleep)
+        finally:
+            if abs(cur_x) > 1e-9 or abs(cur_y) > 1e-9:
+                ok, rect, cur_x, cur_y = _move_by_xy(-cur_x, -cur_y, rect, cur_x, cur_y)
+                if not ok:
+                    emit("Warning: failed to return to start position.")
+                elif mesh:
+                    if not _ensure_full_mesh(model, qf, problem, force_remesh=False):
+                        emit("Warning: BuildMesh failed after return to start position.")
+
+        if cancelled:
+            break
+
+    if cancelled:
+        emit("Canceled.")
+        return 99
+
+    if out_path:
+        out_path_obj = Path(out_path)
+        out_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        with out_path_obj.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            case_labels = [",".join(f"{k}={v}" for k, v in case.items()) for case in cases]
+            output_cols: list[str] = []
+            for integral_name, _ in integrals:
+                comps = seen_components.get(integral_name, [])
+                if not comps:
+                    comps = [""]
+                for comp in comps:
+                    output_cols.append(integral_name if comp == "" else f"{integral_name}.{comp}")
+            header = ["dx", "dy"] + [f"{case_label}:{col}" for case_label in case_labels for col in output_cols]
+            writer.writerow(header)
+            for dx, dy in positions:
+                row = [dx, dy]
+                key = (float(dx), float(dy))
+                for idx in range(1, len(cases) + 1):
+                    cell_map = table.get(key, {}).get(idx, {})
+                    for col in output_cols:
+                        row.append(cell_map.get(col, ""))
+                writer.writerow(row)
+        emit(f"Saved table to {out_path_obj}")
+    else:
+        emit("Results:")
+        case_labels = [",".join(f"{k}={v}" for k, v in case.items()) for case in cases]
+        output_cols = []
+        for integral_name, _ in integrals:
+            comps = seen_components.get(integral_name, [])
+            if not comps:
+                comps = [""]
+            for comp in comps:
+                output_cols.append(integral_name if comp == "" else f"{integral_name}.{comp}")
+        header = ["dx", "dy"] + [f"{case_label}:{col}" for case_label in case_labels for col in output_cols]
+        emit("\t".join(map(str, header)))
+        for dx, dy in positions:
+            key = (float(dx), float(dy))
+            row = [dx, dy]
+            for idx in range(1, len(cases) + 1):
+                cell_map = table.get(key, {}).get(idx, {})
+                for col in output_cols:
+                    row.append(cell_map.get(col, ""))
+            emit("\t".join(map(str, row)))
+    return 0
+
+
 def cmd_batch_force(args: argparse.Namespace) -> int:
     qf = dispatch_qf_app()
     problem = open_problem(qf, args.pbm)
@@ -286,169 +606,17 @@ def cmd_batch_force(args: argparse.Namespace) -> int:
         print(str(exc))
         return 5
 
-    bounds = []
-    for name in move_labels:
-        blk = _find_block_by_label(model, name)
-        if blk is None:
-            print(f"Block not found: {name}")
-            return 6
-        b = _block_bounds(blk)
-        if b is None:
-            print(f"Bounds unavailable for: {name}")
-            return 7
-        bounds.append(b)
-
-    base_rect = _union_bounds(bounds)
-    verts = _collect_vertices_for_labels(model, move_labels)
-    integral_id = int(args.integral_id)
-
-    def _move_by_xy(
-        dx: float,
-        dy: float,
-        rect_now: tuple[float, float, float, float],
-        cur_x: float,
-        cur_y: float,
-    ) -> tuple[bool, tuple[float, float, float, float], float, float]:
-        if abs(dx) <= 1e-9 and abs(dy) <= 1e-9:
-            return True, rect_now, cur_x, cur_y
-        moved = 0
-        moved, _ = move_blocks_in_rect(model, qf, rect_now, dx, dy, epsilon=1e-6)
-        if moved == 0 and verts:
-            for vtx in verts:
-                if move_vertex(vtx, qf, dx, dy):
-                    moved += 1
-            if moved > 0:
-                try:
-                    move_block_labels(problem, qf, move_labels, dx, dy)
-                except Exception:
-                    pass
-        if moved == 0:
-            return False, rect_now, cur_x, cur_y
-        rect_now = (rect_now[0] + dx, rect_now[1] + dy, rect_now[2] + dx, rect_now[3] + dy)
-        cur_x = cur_x + dx
-        cur_y = cur_y + dy
-        return True, rect_now, cur_x, cur_y
-
-    table: dict[tuple[float, float], dict[int, float]] = {}
-
-    step_sleep = 0.0
-    try:
-        step_sleep = float(getattr(args, "sleep", 0) or 0)
-    except ValueError:
-        step_sleep = 0.0
-
-    for idx, case in enumerate(cases, start=1):
-        for name, val in case.items():
-            set_label_field(problem, [name], field_name, val, qf=qf)
-
-        rect = base_rect
-        cur_x = 0.0
-        cur_y = 0.0
-        try:
-            ok, rect, cur_x, cur_y = _move_by_xy(x0 - cur_x, y0 - cur_y, rect, cur_x, cur_y)
-            if not ok:
-                print("Move failed at start position.")
-                return 8
-
-            if args.mesh_once:
-                if args.remesh:
-                    remove_mesh(model)
-                if args.mesh:
-                    if not build_mesh(model):
-                        print("BuildMesh failed.")
-                        return 9
-                    _wait_idle(model)
-                    _wait_idle(problem)
-
-            for dx, dy in positions:
-                ok, rect, cur_x, cur_y = _move_by_xy(dx - cur_x, dy - cur_y, rect, cur_x, cur_y)
-                if not ok:
-                    print(f"Move failed at position dx={dx}, dy={dy}.")
-                    return 8
-
-                if not args.mesh_once:
-                    if args.remesh:
-                        remove_mesh(model)
-                    if args.mesh:
-                        if not build_mesh(model):
-                            print("BuildMesh failed.")
-                            return 9
-                        _wait_idle(model)
-                        _wait_idle(problem)
-
-                if not solve_problem(problem, model):
-                    print("SolveProblem failed.")
-                    return 10
-
-                try:
-                    res = problem.Result
-                except Exception:
-                    res = None
-                if res is None:
-                    print("Result is None after solve.")
-                    return 11
-
-                try:
-                    field = res.GetFieldWindow(1)
-                    contour = field.Contour
-                except Exception as exc:
-                    print(f"Failed to access FieldWindow/Contour: {exc}")
-                    return 12
-
-                try:
-                    contour.Clear()
-                except Exception:
-                    pass
-                for name in move_labels:
-                    try:
-                        contour.AddBlock1(name)
-                    except Exception:
-                        pass
-
-                try:
-                    val = res.GetIntegral(integral_id, contour).Value
-                    fx = float(getattr(val, "X"))
-                except Exception as exc:
-                    print(f"Integral failed at position dx={dx}, dy={dy}: {exc}")
-                    return 13
-
-                key = (float(dx), float(dy))
-                table.setdefault(key, {})[idx] = fx
-                case_label = ",".join(f"{k}={v}" for k, v in case.items())
-                print(f"{case_label} dx={dx} dy={dy}: Fx={fx}")
-                if step_sleep > 0:
-                    time.sleep(step_sleep)
-        finally:
-            if abs(cur_x) > 1e-9 or abs(cur_y) > 1e-9:
-                ok, rect, cur_x, cur_y = _move_by_xy(-cur_x, -cur_y, rect, cur_x, cur_y)
-                if not ok:
-                    print("Warning: failed to return to start position.")
-                elif args.mesh:
-                    if not build_mesh(model):
-                        print("Warning: BuildMesh failed after return to start position.")
-                    else:
-                        _wait_idle(model)
-                        _wait_idle(problem)
-
-    if args.out:
-        out_path = Path(args.out)
-        with out_path.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            header = ["dx", "dy"] + [",".join(f"{k}={v}" for k, v in case.items()) for case in cases]
-            writer.writerow(header)
-            for dx, dy in positions:
-                row = [dx, dy]
-                key = (float(dx), float(dy))
-                for idx in range(1, len(cases) + 1):
-                    row.append(table.get(key, {}).get(idx, ""))
-                writer.writerow(row)
-        print(f"Saved table to {out_path}")
-    else:
-        print("Results:")
-        header = ["dx", "dy"] + [",".join(f"{k}={v}" for k, v in case.items()) for case in cases]
-        print("\t".join(map(str, header)))
-        for dx, dy in positions:
-            key = (float(dx), float(dy))
-            row = [dx, dy] + [table.get(key, {}).get(idx, "") for idx in range(1, len(cases) + 1)]
-            print("\t".join(map(str, row)))
-    return 0
+    return run_batch_force_plan(
+        pbm=args.pbm,
+        model_path=args.model,
+        move_labels=move_labels,
+        cases=cases,
+        field_name=field_name,
+        positions=positions,
+        integrals=[(f"Integral{int(args.integral_id)}", int(args.integral_id))],
+        mesh=bool(args.mesh),
+        remesh=bool(args.remesh),
+        mesh_once=bool(args.mesh_once),
+        sleep_s=float(getattr(args, "sleep", 0) or 0),
+        out_path=str(getattr(args, "out", "") or ""),
+    )

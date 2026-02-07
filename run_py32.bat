@@ -8,12 +8,18 @@ if %errorlevel%==0 (
   exit /b %errorlevel%
 )
 
-REM Fallback to explicit path if launcher is unavailable.
-set "PY32=D:\ingenieur\py32\python.exe"
-if not exist "%PY32%" (
+REM Fallback: use a user-provided 32-bit Python path.
+REM Set PY32 to your 32-bit python.exe (system/user env var or edit below).
+if defined PY32 (
+  if exist "%PY32%" (
+    "%PY32%" %*
+    exit /b %errorlevel%
+  )
   echo [ERR] 32-bit Python not found: %PY32%
-  echo Please install 32-bit Python or update PY32 path in run_py32.bat
+  echo Please fix PY32 or install 32-bit Python.
   exit /b 1
 )
 
-"%PY32%" %*
+echo [ERR] 32-bit Python not found.
+echo Please set PY32 to your 32-bit python.exe or install Python 32-bit.
+exit /b 1

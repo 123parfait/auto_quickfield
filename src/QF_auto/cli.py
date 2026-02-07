@@ -29,6 +29,7 @@ from .solve import (
     cmd_solve_integral,
 )
 from .workflow import cmd_batch_force
+from .gui import cmd_gui
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -159,7 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_com.set_defaults(func=cmd_com_probe)
 
     p_force = sub.add_parser("solve-force", help="Solve and dump mechanical force")
-    p_force.add_argument("--pbm", required=True, help="PBM path")
+    p_force.add_argument("--pbm", default="", help="PBM path (optional if a problem is already open)")
     p_force.add_argument("--label", required=True, help="Block label")
     p_force.add_argument("--mesh", action="store_true", help="Build mesh before solving")
     p_force.add_argument("--remesh", action="store_true", help="Remove mesh before rebuild")
@@ -167,13 +168,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_force.set_defaults(func=cmd_solve_force)
 
     p_dump = sub.add_parser("result-dump", help="Dump result blocks/force candidates")
-    p_dump.add_argument("--pbm", required=True, help="PBM path")
+    p_dump.add_argument("--pbm", default="", help="PBM path (optional if a problem is already open)")
     p_dump.add_argument("--label", default="", help="Block label to inspect")
     p_dump.add_argument("--solve", action="store_true", help="Force solve before result")
     p_dump.set_defaults(func=cmd_result_dump)
 
     p_int = sub.add_parser("solve-integral", help="Solve and evaluate integral")
-    p_int.add_argument("--pbm", required=True, help="PBM path")
+    p_int.add_argument("--pbm", default="", help="PBM path (optional if a problem is already open)")
     p_int.add_argument("--labels", required=True, help="Comma-separated block labels")
     p_int.add_argument("--model", default="", help="Optional path to .mod file")
     p_int.add_argument("--integral-id", default="15", help="Integral ID (default 15 = Maxwell force)")
@@ -196,6 +197,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_batch.add_argument("--sleep", default="0", help="Sleep seconds between steps (e.g., 0.5)")
     p_batch.add_argument("--out", default="", help="Optional CSV output path")
     p_batch.set_defaults(func=cmd_batch_force)
+
+    p_gui = sub.add_parser("gui", help="Launch GUI for batch force workflow")
+    p_gui.set_defaults(func=cmd_gui)
 
     return parser
 

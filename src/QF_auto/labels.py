@@ -1,7 +1,7 @@
 from __future__ import annotations
 import argparse
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from .connection import (
     win32com,
@@ -639,15 +639,22 @@ def set_label_field(
     field: str,
     value: float,
     qf: Optional[Any] = None,
+    log: Optional[Callable[[str], None]] = None,
 ) -> int:
+    def emit(msg: str) -> None:
+        if log is not None:
+            log(msg)
+        else:
+            print(msg)
+
     field_key = field.strip()
     if not field_key:
-        print("Missing field name.")
+        emit("Missing field name.")
         return 0
 
     label_set = {name.strip().lower() for name in labels if name.strip()}
     if not label_set:
-        print("No label names provided.")
+        emit("No label names provided.")
         return 0
 
     try:
@@ -658,7 +665,7 @@ def set_label_field(
         except Exception:
             label_coll = None
     if label_coll is None:
-        print("Failed to access block labels.")
+        emit("Failed to access block labels.")
         return 0
 
     targets = []
@@ -671,7 +678,7 @@ def set_label_field(
             targets.append(lbl)
 
     if not targets:
-        print(f"No matching labels found: {', '.join(labels)}")
+        emit(f"No matching labels found: {', '.join(labels)}")
         return 0
 
     changed = 0
@@ -712,7 +719,7 @@ def set_label_field(
                     else:
                         setattr(content, field_key, value)
                 except Exception as exc:
-                    print(f"Failed to set {field_key} on '{target.Name}': {exc}")
+                    emit(f"Failed to set {field_key} on '{target.Name}': {exc}")
                     continue
 
             try:
@@ -721,7 +728,7 @@ def set_label_field(
                 pass
             changed += 1
         except Exception as exc:
-            print(f"Failed to update '{target.Name}': {exc}")
+            emit(f"Failed to update '{target.Name}': {exc}")
 
     try:
         problem.DataDoc.Save()
@@ -734,7 +741,7 @@ def set_label_field(
     if qf is not None:
         close_data_windows(qf)
 
-    print(f"Updated {changed} label(s) for field '{field_key}' = {value}.")
+    emit(f"Updated {changed} label(s) for field '{field_key}' = {value}.")
     return changed
 
 def cmd_label_dump(args: argparse.Namespace) -> int:

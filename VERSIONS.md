@@ -16,6 +16,11 @@
 3. Output electromagnetic force table (CSV)
 ![alt text](scripts/image.png)
 
+## V4 (GUI workflow)
+1. Added desktop UI for label selection and batch run
+2. Multi-select outputs and moving labels
+3. Built-in CSV preview window for results
+
 ## Script mapping
 - Entry point: `src/main.py` (CLI)
 - Connect to QuickField: `src/QF_auto/connection.py`
