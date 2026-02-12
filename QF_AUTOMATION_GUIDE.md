@@ -10,13 +10,13 @@
 Why 32-bit: QuickField 6.2 COM server is 32-bit, so 64-bit Python cannot attach.
 
 ---
-## 2) Issues encountered and how we fixed them
+## 2) Issues encountered and how i fixed them
 
 ### 2.1 Labels vs geometry
 
 - **Block Labels** (materials) are not the same as **Geometry labels**.
 - COM movement of geometry requires block-based selection or geometry labels.
-- We used block labels and `Blocks.LabeledAs` / `Blocks.InRectangle` to move geometry.
+- i used block labels and `Blocks.LabeledAs` / `Blocks.InRectangle` to move geometry.
 
 ### 2.2 Why some moves failed
 
