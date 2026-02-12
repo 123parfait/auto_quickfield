@@ -88,7 +88,34 @@ def launch_gui() -> int:
     ]
 
     # Variables
-    out_var = tk.StringVar(value="outputs\\force_table.csv")
+    DEFAULT_OUT_NAME = "force_table.csv"
+    DEFAULT_OUT_DIR = os.path.join(os.path.expanduser("~"), "Desktop")
+
+    out_dir_var = tk.StringVar(value=DEFAULT_OUT_DIR)
+    out_name_var = tk.StringVar(value=DEFAULT_OUT_NAME)
+
+    def _build_out_path() -> str:
+        raw_dir = out_dir_var.get().strip()
+        raw_name = out_name_var.get().strip()
+
+        if raw_dir.lower().endswith(".csv"):
+            if not raw_name:
+                out_name_var.set(os.path.basename(raw_dir))
+            return raw_dir
+
+        if not raw_dir:
+            raw_dir = DEFAULT_OUT_DIR
+            out_dir_var.set(raw_dir)
+
+        if not raw_name:
+            raw_name = DEFAULT_OUT_NAME
+            out_name_var.set(raw_name)
+
+        if not raw_name.lower().endswith(".csv"):
+            raw_name = f"{raw_name}.csv"
+            out_name_var.set(raw_name)
+
+        return os.path.join(raw_dir, raw_name)
     mode_var = tk.StringVar(value="pair")
     start_var = tk.StringVar(value="-1,0")
     end_var = tk.StringVar(value="1,0")
@@ -151,7 +178,7 @@ def launch_gui() -> int:
         style="Gray.TButton",
     ).pack(side="left")
 
-    values_list_frame = ttk.Frame(values, style="Card.TFrame", padding=(0, 0, 0, 8))
+    values_list_frame = ttk.Frame(values, style="Card.TFrame")
     values_list_frame.grid(row=5, column=0, sticky="nsew")
     values_list = tk.Listbox(
         values_list_frame,
@@ -186,7 +213,7 @@ def launch_gui() -> int:
     labels_combo = ttk.Combobox(labels_row, state="readonly", values=[], style="App.TCombobox", width=10)
     labels_combo.grid(row=0, column=0, sticky="ew", padx=(0, 6))
     labels_combo.bind("<<ComboboxSelected>>", lambda _e: _add_choice(labels_combo, labels_list))
-    labels_list_frame = ttk.Frame(labels_row, style="Card.TFrame", padding=(0, 0, 0, 8))
+    labels_list_frame = ttk.Frame(labels_row, style="Card.TFrame")
     labels_list_frame.grid(row=0, column=1, sticky="nsew")
     labels_list_frame.columnconfigure(0, weight=1)
     labels_list_frame.rowconfigure(0, weight=1)
@@ -221,7 +248,7 @@ def launch_gui() -> int:
     )
     outputs_combo.grid(row=0, column=0, sticky="ew", padx=(0, 6))
     outputs_combo.bind("<<ComboboxSelected>>", lambda _e: _add_choice(outputs_combo, outputs_list))
-    outputs_list_frame = ttk.Frame(out_row, style="Card.TFrame", padding=(0, 0, 0, 8))
+    outputs_list_frame = ttk.Frame(out_row, style="Card.TFrame")
     outputs_list_frame.grid(row=0, column=1, sticky="nsew")
     outputs_list_frame.columnconfigure(0, weight=1)
     outputs_list_frame.rowconfigure(0, weight=1)
@@ -245,10 +272,6 @@ def launch_gui() -> int:
     out_scroll = ttk.Scrollbar(outputs_list_frame, orient="vertical", command=outputs_list.yview)
     out_scroll.grid(row=0, column=1, sticky="ns")
     outputs_list.configure(yscrollcommand=out_scroll.set)
-
-    out_btn_row = ttk.Frame(movement, style="Card.TFrame")
-    out_btn_row.grid(row=5, column=0, sticky="ew", pady=4)
-    ttk.Label(out_btn_row, text=" ", style="Card.TLabel").pack(side="left")
 
     display_to_integral: dict[str, tuple[str, int]] = {name: (name, int_id) for name, int_id in INTEGRAL_CHOICES}
     if INTEGRAL_CHOICES:
@@ -291,21 +314,38 @@ def launch_gui() -> int:
     output.grid(row=2, column=0, sticky="ew")
     output.columnconfigure(1, weight=1)
 
-    ttk.Label(output, text="CSV", style="Card.TLabel").grid(row=0, column=0, sticky="w")
-    out_entry = ttk.Entry(output, textvariable=out_var, style="App.TEntry", width=36)
-    out_entry.grid(row=0, column=1, sticky="ew", padx=(0, 6))
+    ttk.Label(output, text="Folder", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+    out_dir_entry = ttk.Entry(output, textvariable=out_dir_var, style="App.TEntry", width=36)
+    out_dir_entry.grid(row=0, column=1, sticky="ew", padx=(0, 6))
+    def _set_out_path_from_dir(folder: str) -> None:
+        if not folder:
+            return
+        out_dir_var.set(folder)
+
+    def _browse_output_dir() -> None:
+        initial_dir = ""
+        current = out_dir_var.get().strip()
+        if current:
+            try:
+                initial_dir = (
+                    os.path.dirname(current) if current.lower().endswith(".csv") else current
+                )
+            except Exception:
+                initial_dir = ""
+        folder = filedialog.askdirectory(title="Select output folder", initialdir=initial_dir or None)
+        if folder:
+            _set_out_path_from_dir(folder)
+
     ttk.Button(
         output,
         text="Browse...",
-        command=lambda: out_var.set(
-            filedialog.asksaveasfilename(
-                title="Save CSV",
-                defaultextension=".csv",
-                filetypes=[("CSV", "*.csv"), ("All files", "*.*")],
-            )
-        ),
+        command=_browse_output_dir,
         style="Gray.TButton",
     ).grid(row=0, column=2, sticky="e")
+
+    ttk.Label(output, text="File name", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
+    out_name_entry = ttk.Entry(output, textvariable=out_name_var, style="App.TEntry", width=36)
+    out_name_entry.grid(row=1, column=1, sticky="ew", padx=(0, 6), pady=(6, 0))
 
     # Log
     log_frame = ttk.LabelFrame(main, text="Log", padding=10, style="Card.TLabelframe")
@@ -388,7 +428,8 @@ def launch_gui() -> int:
         value_entry.delete(0, "end")
         value_label_combo.set("")
         labels_combo.set("")
-        out_var.set("outputs\\force_table.csv")
+        out_dir_var.set(DEFAULT_OUT_DIR)
+        out_name_var.set(DEFAULT_OUT_NAME)
         mode_var.set("pair")
         start_var.set("-1,0")
         end_var.set("1,0")
@@ -400,7 +441,7 @@ def launch_gui() -> int:
             outputs_list.insert("end", INTEGRAL_CHOICES[0][0])
 
     def show_table() -> None:
-        path = out_var.get().strip()
+        path = _build_out_path()
         if not path:
             messagebox.showerror("Output", "Output path is empty.")
             return
@@ -412,12 +453,12 @@ def launch_gui() -> int:
             with open(path, newline="", encoding="utf-8-sig") as f:
                 reader = csv.reader(f)
                 header = next(reader, [])
-                rows = reader
+                rows = list(reader)
         except UnicodeDecodeError:
             with open(path, newline="", encoding="mbcs") as f:
                 reader = csv.reader(f)
                 header = next(reader, [])
-                rows = reader
+                rows = list(reader)
         except Exception as exc:
             messagebox.showerror("Output", f"Failed to read file:\n{exc}")
             return
@@ -499,6 +540,8 @@ def launch_gui() -> int:
         step = float(step_var.get().strip())
         positions = _positions_line(x0, y0, x1, y1, step)
 
+        out_path = _build_out_path()
+
         return {
             "pbm": "",
             "model_path": "",
@@ -510,8 +553,8 @@ def launch_gui() -> int:
             "mesh": True,
             "remesh": True,
             "mesh_once": False,
-            "sleep_s": 0.5,
-            "out_path": out_var.get().strip(),
+            "sleep_s": 1.0,
+            "out_path": out_path,
         }
 
     def run_clicked() -> None:

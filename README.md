@@ -11,6 +11,6 @@ run_py32.bat src/main.py gui
 Goal: build a simple, convenient plugin for batch topology optimization of linear motors.
 
 ## Next steps
-1. 美化 UI
-2. 优化进程避免 QuickField 在批量仿真中卡死
-3. 添加更多功能，扩展到旋转电机
+- [ ] Polish the UI.
+- [ ] Optimize the process to prevent QuickField from freezing during batch simulations.
+- [ ] Add more features and extend support to rotating motors.
