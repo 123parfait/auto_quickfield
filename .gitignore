@@ -3,3 +3,7 @@ __pycache__/
 outputs/
 config/settings.json
 config/modeling.json
+build/
+dist/
+*.spec
+python-3.14.2.exe
