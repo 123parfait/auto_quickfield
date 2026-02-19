@@ -21,6 +21,10 @@
 2. Multi-select outputs and moving labels
 3. Built-in CSV preview window for results
 
+## V5
+1. Fixed an issue where one label could not reliably control multiple moving parts at the same time.
+2. Fixed an issue where QuickField could close unexpectedly after CSV generation completed.
+
 ## Script mapping
 - Entry point: `src/main.py` (CLI)
 - Connect to QuickField: `src/QF_auto/connection.py`

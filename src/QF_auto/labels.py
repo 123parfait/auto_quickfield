@@ -640,6 +640,7 @@ def set_label_field(
     value: float,
     qf: Optional[Any] = None,
     log: Optional[Callable[[str], None]] = None,
+    save: bool = True,
 ) -> int:
     def emit(msg: str) -> None:
         if log is not None:
@@ -658,10 +659,10 @@ def set_label_field(
         return 0
 
     try:
-        label_coll = problem.DataDoc.Labels(3)
+        label_coll = problem.Labels(3)
     except Exception:
         try:
-            label_coll = problem.Labels(3)
+            label_coll = problem.DataDoc.Labels(3)
         except Exception:
             label_coll = None
     if label_coll is None:
@@ -730,16 +731,16 @@ def set_label_field(
         except Exception as exc:
             emit(f"Failed to update '{target.Name}': {exc}")
 
-    try:
-        problem.DataDoc.Save()
-    except Exception:
-        pass
-    try:
-        problem.Save()
-    except Exception:
-        pass
-    if qf is not None:
-        close_data_windows(qf)
+    if save:
+        try:
+            problem.Save()
+        except Exception:
+            try:
+                problem.DataDoc.Save()
+            except Exception:
+                pass
+        if qf is not None:
+            close_data_windows(qf)
 
     emit(f"Updated {changed} label(s) for field '{field_key}' = {value}.")
     return changed

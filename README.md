@@ -19,7 +19,7 @@ run_py32.bat src/main.py gui
 
 *package：*
 run_py32.bat -m pip install pyinstaller
-run_py32.bat -m PyInstaller --noconfirm --clean --onedir --windowed --name QFAuto_V4 --paths src --hidden-import pythoncom --hidden-import pywintypes --hidden-import win32timezone gui_entry.py
+run_py32.bat -m PyInstaller --noconfirm --clean --onedir --windowed --name QFAuto_V5 --paths src --hidden-import pythoncom --hidden-import pywintypes --hidden-import win32timezone gui_entry.py
 
 
 ```
@@ -33,6 +33,15 @@ run_py32.bat -m PyInstaller --noconfirm --clean --onedir --windowed --name QFAut
    
    `all` means Cartesian product. For example, with 2 quantities and 2 values for each, you get 4 simulations.
    `pair` means one-to-one pairing. For example, with 2 quantities and 2 values for each, you get 2 simulations.
+   
+   Example:
+   `bobine1=100,200` and `bobine2=300,400`
+   `pair` => `(100,300)`, `(200,400)` (2 cases)
+   `all` => `(100,300)`, `(100,400)`, `(200,300)`, `(200,400)` (4 cases)
+
+   For a single label, these two input styles are equivalent:
+   - one value each time: `bobine=100`, `bobine=200`, `bobine=300` (click `Confirm` three times)
+   - multiple values once: `bobine=100,200,300` (click `Confirm` once)
 4. Select the labels to move and the output quantities to export.
 5. In `Motion`, set the start and end positions of the moving part.
    Only linear motion is currently supported.

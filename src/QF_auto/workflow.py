@@ -8,15 +8,11 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
-from .connection import dispatch_qf_app, open_problem, ensure_model_loaded
+from .connection import dispatch_qf_app, open_problem, ensure_model_loaded, iter_collection
 from .geometry import (
     _block_bounds,
-    _find_block_by_label,
-    _collect_vertices_for_labels,
     list_block_labels,
     move_blocks_in_rect,
-    move_block_labels,
-    move_vertex,
 )
 from .labels import set_label_field
 from .solve import build_mesh, remove_mesh, solve_problem, rebuild_model
@@ -320,6 +316,37 @@ def run_batch_force_plan(
         emit("Failed to load model.")
         return 2
 
+    def _blocks_for_label(name: str) -> list[Any]:
+        out: list[Any] = []
+        try:
+            blocks = model.Shapes.Blocks
+        except Exception:
+            return out
+
+        for method_name in ("LabeledAs", "GetLabeledAs"):
+            if not hasattr(blocks, method_name):
+                continue
+            method = getattr(blocks, method_name)
+            for args in ((name,), ("", "", name), ("", name, "")):
+                try:
+                    sel = method(*args)
+                except Exception:
+                    continue
+                if sel is None:
+                    continue
+                items = list(iter_collection(sel))
+                if items:
+                    return items
+
+        for blk in iter_collection(blocks):
+            try:
+                lbl = str(getattr(blk, "Label")).strip()
+            except Exception:
+                continue
+            if lbl.lower() == name.lower():
+                out.append(blk)
+        return out
+
     def _integral_components(val: Any) -> dict[str, float]:
         comps: dict[str, float] = {}
         for axis in ("X", "Y", "Z"):
@@ -338,18 +365,22 @@ def run_batch_force_plan(
     x0, y0 = positions[0]
     bounds = []
     for name in move_labels:
-        blk = _find_block_by_label(model, name)
-        if blk is None:
+        blks = _blocks_for_label(name)
+        if not blks:
             emit(f"Block not found: {name}")
             return 6
-        b = _block_bounds(blk)
-        if b is None:
+        any_bound = False
+        for blk in blks:
+            b = _block_bounds(blk)
+            if b is None:
+                continue
+            bounds.append(b)
+            any_bound = True
+        if not any_bound:
             emit(f"Bounds unavailable for: {name}")
             return 7
-        bounds.append(b)
 
     base_rect = _union_bounds(bounds)
-    verts = _collect_vertices_for_labels(model, move_labels)
     mesh_once_effective = bool(mesh_once)
     if mesh and mesh_once:
         emit("Note: --mesh-once is ignored because geometry moves each step.")
@@ -365,17 +396,9 @@ def run_batch_force_plan(
         if abs(dx) <= 1e-9 and abs(dy) <= 1e-9:
             return True, rect_now, cur_x, cur_y
         moved = 0
-        moved, _ = move_blocks_in_rect(model, qf, rect_now, dx, dy, epsilon=1e-6)
-        if moved == 0 and verts:
-            for vtx in verts:
-                if move_vertex(vtx, qf, dx, dy):
-                    moved += 1
-            if moved > 0:
-                try:
-                    move_block_labels(problem, qf, move_labels, dx, dy)
-                except Exception:
-                    pass
+        moved, _ = move_blocks_in_rect(model, qf, rect_now, dx, dy, epsilon=1e-4)
         if moved == 0:
+            emit("Rigid move failed (no blocks moved); stopping to avoid geometry distortion.")
             return False, rect_now, cur_x, cur_y
         rect_now = (rect_now[0] + dx, rect_now[1] + dy, rect_now[2] + dx, rect_now[3] + dy)
         cur_x = cur_x + dx
@@ -393,7 +416,8 @@ def run_batch_force_plan(
             cancelled = True
             break
         for name, val in case.items():
-            set_label_field(problem, [name], field_name, val, qf=qf, log=log)
+            # Avoid closing QuickField windows during batch runs.
+            set_label_field(problem, [name], field_name, val, qf=None, log=log, save=False)
 
         rect = base_rect
         cur_x = 0.0

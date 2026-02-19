@@ -310,6 +310,16 @@ def com_open_problem(pbm_path: Path):
 def dispatch_qf_app() -> Any:
     if win32com is None:
         raise RuntimeError("pywin32 is not available. Install with pip install pywin32.")
+    # Prefer attaching to an already opened QuickField instance.
+    try:
+        return win32com.client.GetActiveObject("QuickField.Application")
+    except Exception:
+        pass
+    try:
+        if pythoncom is not None and hasattr(pythoncom, "GetActiveObject"):
+            return pythoncom.GetActiveObject("QuickField.Application")
+    except Exception:
+        pass
     try:
         return win32com.client.gencache.EnsureDispatch("QuickField.Application")
     except Exception:
