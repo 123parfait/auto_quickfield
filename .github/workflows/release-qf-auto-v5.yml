@@ -1,0 +1,24 @@
+name: Release QF_auto V5
+
+on:
+  push:
+    tags:
+      - "QF_auto_V5_release"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: QF_auto V5
+          tag_name: ${{ github.ref_name }}
+          files: |
+            release/QF_auto V5.zip
